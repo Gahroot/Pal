@@ -2,10 +2,10 @@
  * Delete schedule tool — removes a scheduled job by name.
  *
  * Ported from tama-agent DeleteScheduleTool.swift / pocket-agent scheduler-tools.ts.
- * Uses stub schedule-store until Phase 6.
  */
 
 import type { Tool, ToolOutput } from '../../types/index.ts';
+import { scheduleStore } from '../stores/schedule-store.ts';
 
 export function createDeleteScheduleTool(): Tool {
   return {
@@ -28,12 +28,11 @@ export function createDeleteScheduleTool(): Tool {
       const name = args.name as string;
       if (!name) return { text: 'Error: name is required.' };
 
-      // TODO: Delegate to schedule-store in Phase 6
-      console.warn('[delete_schedule] Schedule store not yet implemented.');
-
-      return {
-        text: `Schedule "${name}" deletion requested. (Note: Schedule store pending Phase 6 implementation.)`,
-      };
+      const removed = await scheduleStore.deleteJob(name);
+      if (!removed) {
+        return { text: `No schedule named "${name}" found.` };
+      }
+      return { text: `Schedule "${name}" deleted.` };
     },
   };
 }

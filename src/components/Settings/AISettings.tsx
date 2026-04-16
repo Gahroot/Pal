@@ -23,6 +23,7 @@ export function AISettings() {
   // Load existing credential when provider changes
   useEffect(() => {
     const cred = providerStore.getCredential(selectedProvider);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing form from external store when provider changes
     setApiKey(cred?.accessToken ?? "");
     setValidationStatus(cred ? "valid" : "idle");
 

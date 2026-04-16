@@ -67,6 +67,7 @@ export function RoutineList() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from non-React imperative store
     loadJobs();
   }, [loadJobs]);
 

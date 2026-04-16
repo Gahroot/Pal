@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
 
 use crate::audio::capture::CaptureConfig;
-use crate::{AudioState, TtsState};
+use crate::{AudioState, SttState, TtsState};
 
 /// Placeholder greeting command for testing
 #[tauri::command]
@@ -150,46 +150,127 @@ pub async fn decrypt_data(ciphertext: String) -> Result<String, String> {
 /// - "audio-level": { rms: f64 }
 /// - "audio-first-speech": {}
 /// - "audio-silence-detected": {}
+///
+/// Also spawns a drainer thread that downmixes + resamples device audio to
+/// 16kHz mono and feeds it into the STT pipeline via shared state.
 #[tauri::command]
 pub async fn audio_start_capture(
     app: tauri::AppHandle,
-    state: State<'_, AudioState>,
+    audio_state: State<'_, AudioState>,
     silence_duration_ms: Option<u64>,
     mute_system: Option<bool>,
 ) -> Result<(), String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use tauri::Manager;
+
     let config = CaptureConfig {
         silence_duration: std::time::Duration::from_millis(silence_duration_ms.unwrap_or(2000)),
         mute_system: mute_system.unwrap_or(false),
     };
 
-    let mut capture = state
-        .capture
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
+    let (device_sample_rate, channels, consumer, stop_flag) = {
+        let mut capture = audio_state
+            .capture
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
 
-    capture
-        .start(config)
-        .map_err(|e| format!("Failed to start capture: {}", e))?;
+        capture
+            .start(config)
+            .map_err(|e| format!("Failed to start capture: {}", e))?;
 
-    // Spawn a background task to forward capture events to the frontend.
-    if let Some(event_rx) = capture.event_rx.take() {
-        let app_handle = app.clone();
+        // Forward capture events to the frontend.
+        if let Some(event_rx) = capture.event_rx.take() {
+            let app_handle = app.clone();
+            std::thread::spawn(move || {
+                use crate::audio::capture::CaptureEvent;
+                while let Ok(event) = event_rx.recv() {
+                    match event {
+                        CaptureEvent::AudioLevel(rms) => {
+                            let _ =
+                                app_handle.emit("audio-level", serde_json::json!({ "rms": rms }));
+                        }
+                        CaptureEvent::FirstSpeech => {
+                            let _ = app_handle
+                                .emit("audio-first-speech", serde_json::json!({}));
+                        }
+                        CaptureEvent::SilenceDetected => {
+                            let _ = app_handle
+                                .emit("audio-silence-detected", serde_json::json!({}));
+                        }
+                        CaptureEvent::Error(msg) => {
+                            let _ = app_handle
+                                .emit("audio-error", serde_json::json!({ "error": msg }));
+                        }
+                    }
+                }
+            });
+        }
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        capture.drainer_stop_flag = Some(stop_flag.clone());
+        (
+            capture.sample_rate(),
+            capture.channels(),
+            capture.consumer.take(),
+            stop_flag,
+        )
+    };
+
+    // Drainer: device ring buffer → 16kHz mono → STT.
+    if let Some(mut consumer) = consumer {
+        use ringbuf::traits::Consumer;
+        let pipeline_arc = {
+            let stt_state = app.state::<crate::SttState>();
+            stt_state.pipeline.clone()
+        };
         std::thread::spawn(move || {
-            use crate::audio::capture::CaptureEvent;
-            while let Ok(event) = event_rx.recv() {
-                match event {
-                    CaptureEvent::AudioLevel(rms) => {
-                        let _ = app_handle.emit("audio-level", serde_json::json!({ "rms": rms }));
+            let target_rate: u32 = 16_000;
+            let ratio = device_sample_rate as f32 / target_rate as f32;
+            let mut carry: f32 = 0.0;
+            let mut mono_buf: Vec<f32> = Vec::with_capacity(8192);
+            let mut raw_buf: Vec<f32> = vec![0.0; 4096];
+
+            while !stop_flag.load(Ordering::SeqCst) {
+                let n = consumer.pop_slice(&mut raw_buf);
+                if n == 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
+
+                // Downmix to mono.
+                mono_buf.clear();
+                if channels <= 1 {
+                    mono_buf.extend_from_slice(&raw_buf[..n]);
+                } else {
+                    let ch = channels as usize;
+                    let frames = n / ch;
+                    for f in 0..frames {
+                        let mut sum = 0.0f32;
+                        for c in 0..ch {
+                            sum += raw_buf[f * ch + c];
+                        }
+                        mono_buf.push(sum / ch as f32);
                     }
-                    CaptureEvent::FirstSpeech => {
-                        let _ = app_handle.emit("audio-first-speech", serde_json::json!({}));
-                    }
-                    CaptureEvent::SilenceDetected => {
-                        let _ = app_handle.emit("audio-silence-detected", serde_json::json!({}));
-                    }
-                    CaptureEvent::Error(msg) => {
-                        let _ = app_handle
-                            .emit("audio-error", serde_json::json!({ "error": msg }));
+                }
+
+                // Linear resample to 16kHz mono.
+                let mut resampled =
+                    Vec::with_capacity(mono_buf.len() / ratio.max(1.0) as usize + 4);
+                let mut pos = carry;
+                while (pos as usize) < mono_buf.len() {
+                    let i = pos as usize;
+                    let frac = pos - i as f32;
+                    let a = mono_buf[i];
+                    let b = mono_buf.get(i + 1).copied().unwrap_or(a);
+                    resampled.push(a + (b - a) * frac);
+                    pos += ratio;
+                }
+                carry = pos - mono_buf.len() as f32;
+
+                if !resampled.is_empty() {
+                    if let Ok(mut pipeline) = pipeline_arc.lock() {
+                        pipeline.feed_samples(&resampled);
                     }
                 }
             }
@@ -317,6 +398,62 @@ pub async fn tts_finish_stream(
     Ok(())
 }
 
+/// Synthesize a single complete utterance and enqueue for playback.
+///
+/// The frontend pre-segments text at sentence/clause boundaries, so each call
+/// represents one ready-to-speak chunk. Emits `tts-status` events so the
+/// frontend can track pending utterances.
+#[tauri::command]
+pub async fn tts_enqueue_text(
+    app: tauri::AppHandle,
+    state: State<'_, TtsState>,
+    audio_state: State<'_, AudioState>,
+    text: String,
+) -> Result<(), String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        let _ = app.emit(
+            "tts-status",
+            serde_json::json!({ "status": "finished" }),
+        );
+        return Ok(());
+    }
+
+    let _ = app.emit(
+        "tts-status",
+        serde_json::json!({ "status": "enqueued" }),
+    );
+
+    let samples = {
+        let engine = state
+            .engine
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+        engine
+            .generate(trimmed)
+            .map_err(|e| format!("TTS generation failed: {}", e))?
+    };
+
+    {
+        let mut playback = audio_state
+            .playback
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+        playback.enqueue_samples(&samples);
+    }
+
+    let _ = app.emit(
+        "tts-status",
+        serde_json::json!({ "status": "audio_ready" }),
+    );
+    let _ = app.emit(
+        "tts-status",
+        serde_json::json!({ "status": "finished" }),
+    );
+
+    Ok(())
+}
+
 /// Stop TTS playback immediately.
 #[tauri::command]
 pub async fn tts_stop(
@@ -373,4 +510,142 @@ pub struct ScreenshotResult {
     pub width: u32,
     pub height: u32,
     pub format: String,
+}
+
+// ── Browser launch command ─────────────────────────────────────────────
+
+/// Spawn a Chromium-family browser with remote debugging enabled.
+///
+/// Uses a dedicated user-data dir under the app data folder so we don't
+/// collide with the user's main profile.
+#[tauri::command]
+pub async fn launch_browser(
+    app: tauri::AppHandle,
+    browser_path: String,
+    debug_port: u16,
+) -> Result<(), String> {
+    use tauri::Manager;
+
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+    let profile_dir = app_data.join("browser-profile");
+    std::fs::create_dir_all(&profile_dir)
+        .map_err(|e| format!("Failed to create browser profile dir: {}", e))?;
+
+    tokio::process::Command::new(&browser_path)
+        .arg(format!("--remote-debugging-port={}", debug_port))
+        .arg(format!("--user-data-dir={}", profile_dir.display()))
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg("about:blank")
+        .spawn()
+        .map_err(|e| format!("Failed to launch browser: {}", e))?;
+
+    Ok(())
+}
+
+/// Check whether a file exists at the given absolute path.
+#[tauri::command]
+pub fn file_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
+// ── STT commands ───────────────────────────────────────────────────────
+
+/// Load the Whisper model from the given ggml binary path.
+///
+/// Typically called once at app startup with a path like
+/// `{appData}/models/ggml-base.en.bin`.
+#[tauri::command]
+pub async fn stt_load_model(
+    state: State<'_, SttState>,
+    model_path: String,
+) -> Result<(), String> {
+    let mut pipeline = state
+        .pipeline
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    pipeline
+        .load_model(&model_path)
+        .map_err(|e| format!("STT model load failed: {}", e))?;
+    Ok(())
+}
+
+/// Start a new listening session: clears the buffer and marks Listening.
+#[tauri::command]
+pub async fn stt_start(state: State<'_, SttState>) -> Result<(), String> {
+    let mut pipeline = state
+        .pipeline
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    pipeline.start_listening();
+    Ok(())
+}
+
+/// Feed raw 16kHz mono f32 samples into the STT buffer.
+#[tauri::command]
+pub async fn stt_feed_samples(
+    state: State<'_, SttState>,
+    samples: Vec<f32>,
+) -> Result<(), String> {
+    let mut pipeline = state
+        .pipeline
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    pipeline.feed_samples(&samples);
+    Ok(())
+}
+
+/// Run whisper inference on the accumulated buffer and emit the result.
+///
+/// Emits `transcription-final` { text } on success.
+#[tauri::command]
+pub async fn stt_finalize(
+    app: tauri::AppHandle,
+    state: State<'_, SttState>,
+) -> Result<String, String> {
+    let text = {
+        let mut pipeline = state
+            .pipeline
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+        pipeline
+            .get_final_result()
+            .unwrap_or_default()
+    };
+
+    let _ = app.emit(
+        "transcription-final",
+        serde_json::json!({ "text": text.clone() }),
+    );
+    Ok(text)
+}
+
+// ── TTS model loading ──────────────────────────────────────────────────
+
+/// Load the Kokoro ONNX model and voices pack.
+///
+/// `model_path` should point to `kokoro-v1.0.onnx` and `voices_path` to
+/// the voices tensor file (`voices.bin`).
+#[tauri::command]
+pub async fn tts_load_model(
+    state: State<'_, TtsState>,
+    model_path: String,
+    voices_path: String,
+    voice_name: Option<String>,
+) -> Result<(), String> {
+    let mut engine = state
+        .engine
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    engine
+        .load_model(
+            &model_path,
+            &voices_path,
+            voice_name.as_deref().unwrap_or("af_sky"),
+        )
+        .map_err(|e| format!("Kokoro model load failed: {}", e))?;
+    Ok(())
 }

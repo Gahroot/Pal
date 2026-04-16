@@ -2,10 +2,10 @@
  * List schedules tool — lists all active scheduled jobs.
  *
  * Ported from tama-agent ListSchedulesTool.swift / pocket-agent scheduler-tools.ts.
- * Uses stub schedule-store until Phase 6.
  */
 
 import type { Tool, ToolOutput } from '../../types/index.ts';
+import { scheduleStore } from '../stores/schedule-store.ts';
 
 export function createListSchedulesTool(): Tool {
   return {
@@ -20,12 +20,23 @@ export function createListSchedulesTool(): Tool {
     },
 
     async execute(): Promise<ToolOutput> {
-      // TODO: Delegate to schedule-store in Phase 6
-      console.warn('[list_schedules] Schedule store not yet implemented.');
+      const jobs = scheduleStore.listJobs();
 
-      return {
-        text: JSON.stringify({ schedules: [], note: 'Schedule store pending Phase 6 implementation.' }, null, 2),
-      };
+      const view = jobs.map((j) => ({
+        id: j.id,
+        name: j.name,
+        type: j.jobType,
+        schedule: j.schedule ?? (j.runAt ? new Date(j.runAt).toISOString() : undefined),
+        nextRun: j.nextRunAt ? new Date(j.nextRunAt).toISOString() : null,
+        enabled: j.enabled,
+        runCount: j.runCount,
+      }));
+
+      if (view.length === 0) {
+        return { text: 'No active schedules.' };
+      }
+
+      return { text: JSON.stringify({ schedules: view }, null, 2) };
     },
   };
 }

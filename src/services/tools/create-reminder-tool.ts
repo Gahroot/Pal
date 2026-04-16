@@ -2,10 +2,10 @@
  * Create reminder tool — schedules a one-time or recurring reminder.
  *
  * Ported from tama-agent CreateReminderTool.swift / pocket-agent scheduler-tools.ts.
- * Uses stub schedule-store until Phase 6.
  */
 
 import type { Tool, ToolOutput } from '../../types/index.ts';
+import { scheduleStore, parseSchedule } from '../stores/schedule-store.ts';
 
 export function createCreateReminderTool(): Tool {
   return {
@@ -22,7 +22,7 @@ export function createCreateReminderTool(): Tool {
           },
           schedule: {
             type: 'string',
-            description: 'Cron expression or natural language schedule (e.g., "every day at 9am", "0 9 * * *")',
+            description: 'Cron expression or natural language schedule (e.g., "every day at 9am", "0 9 * * *", "in 10 minutes")',
           },
           message: {
             type: 'string',
@@ -42,11 +42,18 @@ export function createCreateReminderTool(): Tool {
       if (!schedule) return { text: 'Error: schedule is required.' };
       if (!message) return { text: 'Error: message is required.' };
 
-      // TODO: Delegate to schedule-store in Phase 6
-      console.warn('[create_reminder] Schedule store not yet implemented. Reminder not persisted.');
+      const parsed = parseSchedule(schedule);
+      if (!parsed) {
+        return { text: `Error: could not parse schedule "${schedule}".` };
+      }
+
+      const job = await scheduleStore.addJob(name, 'reminder', parsed, message);
+      const when = job.nextRunAt
+        ? new Date(job.nextRunAt).toLocaleString()
+        : '(unscheduled)';
 
       return {
-        text: `Reminder "${name}" created.\nSchedule: ${schedule}\nMessage: ${message}\n(Note: Schedule store pending — reminder will not persist across restarts.)`,
+        text: `Reminder "${name}" created. Schedule: ${schedule}. Next run: ${when}.`,
       };
     },
   };

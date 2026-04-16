@@ -50,9 +50,12 @@ function stripMarkdown(text: string): string {
   result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
   // Remove emojis (common Unicode ranges)
   result = result.replace(
-    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{E0020}-\u{E007F}]/gu,
+    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{E0020}-\u{E007F}]/gu,
     '',
   );
+  // Strip emoji modifiers separately (variation selectors + ZWJ) — combining
+  // them in the class above trips no-misleading-character-class.
+  result = result.replace(/[\u{FE00}-\u{FE0F}\u{200D}]/gu, '');
   // Collapse multiple newlines
   result = result.replace(/\n{3,}/g, '\n\n');
 

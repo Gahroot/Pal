@@ -25,6 +25,7 @@ const EAGER_FLUSH: usize = 30;
 /// Flush at clause boundaries once we exceed this length.
 const CLAUSE_FLUSH: usize = 60;
 /// Time-based flush delay (not enforced here, caller should use this).
+#[allow(dead_code)]
 pub const FLUSH_DELAY_MS: u64 = 300;
 
 // ── Regex patterns ──────────────────────────────────────────────────────

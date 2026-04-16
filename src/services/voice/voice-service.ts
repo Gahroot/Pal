@@ -62,6 +62,8 @@ export class VoiceService {
   onFirstSpeech: (() => void) | null = null;
   /** Called when capture fails to start. */
   onError: ((message: string) => void) | null = null;
+  /** Called when silence has been detected long enough to finalize. */
+  onSilenceDetected: (() => void) | null = null;
 
   // ─── Event Listeners ────────────────────────────────────────────────────
 
@@ -95,10 +97,42 @@ export class VoiceService {
     );
 
     this.unlisteners.push(
-      await listen('first-speech', () => {
+      await listen('audio-first-speech', () => {
         this.onFirstSpeech?.();
       }),
     );
+
+    // Silence detected → stop mic capture and finalize transcription.
+    this.unlisteners.push(
+      await listen('audio-silence-detected', () => {
+        void this.handleSilenceDetected();
+      }),
+    );
+
+    this.unlisteners.push(
+      await listen<{ error: string }>('audio-error', (event) => {
+        this._state = 'idle';
+        this.onError?.(event.payload.error);
+      }),
+    );
+  }
+
+  /** Silence detected — stop capture, run whisper, emit transcription-final. */
+  private async handleSilenceDetected(): Promise<void> {
+    if (this._state !== 'capturing') return;
+
+    this.onSilenceDetected?.();
+    try {
+      await invoke('audio_stop_capture');
+      await invoke<string>('stt_finalize');
+      // `stt_finalize` emits `transcription-final`, which our listener
+      // dispatches to onCaptureComplete.
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[VoiceService] Silence finalize failed: ${msg}`);
+      this._state = 'idle';
+      this.onError?.(msg);
+    }
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────
@@ -116,8 +150,9 @@ export class VoiceService {
     console.info('[VoiceService] Starting capture');
 
     try {
+      await invoke('stt_start');
       await invoke('audio_start_capture', {
-        silenceDuration: options.silenceDuration ?? 1.0,
+        silenceDurationMs: Math.round((options.silenceDuration ?? 1.0) * 1000),
         muteSystem: options.muteSystem ?? true,
       });
     } catch (e) {

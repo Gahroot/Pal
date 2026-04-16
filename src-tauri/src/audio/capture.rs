@@ -81,6 +81,8 @@ pub struct AudioCapture {
     pub consumer: Option<ringbuf::HeapCons<f32>>,
     /// Receive capture events (audio level, speech, silence).
     pub event_rx: Option<mpsc::Receiver<CaptureEvent>>,
+    /// Stop signal for the drainer thread set by the caller after `start`.
+    pub drainer_stop_flag: Option<Arc<AtomicBool>>,
     sample_rate: u32,
     channels: u16,
 }
@@ -92,6 +94,7 @@ impl AudioCapture {
             running: Arc::new(AtomicBool::new(false)),
             consumer: None,
             event_rx: None,
+            drainer_stop_flag: None,
             sample_rate: 0,
             channels: 0,
         }
@@ -199,6 +202,9 @@ impl AudioCapture {
     /// Stop the capture stream and release resources.
     pub fn stop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
+        if let Some(flag) = self.drainer_stop_flag.take() {
+            flag.store(true, Ordering::SeqCst);
+        }
         // Dropping the stream stops it.
         self.stream.0.take();
         self.consumer.take();

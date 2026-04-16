@@ -2,10 +2,10 @@
  * Create routine tool — schedules a recurring AI prompt execution.
  *
  * Ported from tama-agent CreateRoutineTool.swift / pocket-agent scheduler-tools.ts.
- * Uses stub schedule-store until Phase 6.
  */
 
 import type { Tool, ToolOutput } from '../../types/index.ts';
+import { scheduleStore, parseSchedule } from '../stores/schedule-store.ts';
 
 export function createCreateRoutineTool(): Tool {
   return {
@@ -42,11 +42,18 @@ export function createCreateRoutineTool(): Tool {
       if (!schedule) return { text: 'Error: schedule is required.' };
       if (!prompt) return { text: 'Error: prompt is required.' };
 
-      // TODO: Delegate to schedule-store in Phase 6
-      console.warn('[create_routine] Schedule store not yet implemented. Routine not persisted.');
+      const parsed = parseSchedule(schedule);
+      if (!parsed) {
+        return { text: `Error: could not parse schedule "${schedule}".` };
+      }
+
+      const job = await scheduleStore.addJob(name, 'routine', parsed, prompt);
+      const when = job.nextRunAt
+        ? new Date(job.nextRunAt).toLocaleString()
+        : '(unscheduled)';
 
       return {
-        text: `Routine "${name}" created.\nSchedule: ${schedule}\nPrompt: ${prompt}\n(Note: Schedule store pending — routine will not persist across restarts.)`,
+        text: `Routine "${name}" created. Schedule: ${schedule}. Next run: ${when}.`,
       };
     },
   };

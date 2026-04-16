@@ -9,6 +9,13 @@ edition = "2021"
 name = "tama_windows_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[features]
+# `voice` enables whisper.cpp STT and Kokoro TTS.
+# It's off by default so WSL/Linux dev builds don't require libclang + espeak-ng.
+# Windows release builds should compile with `--features voice`.
+default = []
+voice = ["dep:whisper-rs", "dep:ort", "dep:ndarray"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -42,6 +49,7 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 # Image processing (screenshots)
 image = "0.25"
 base64 = "0.22"
+xcap = "0.0.15"
 
 # Encryption
 chacha20poly1305 = "0.10"
@@ -53,3 +61,17 @@ rubato = "0.16"
 
 # Regex for TTS text processing
 regex = "1"
+
+# STT — whisper.cpp Rust bindings (bundled ggml build via cc crate).
+# Requires a C++ compiler + libclang on the build host.
+# Gated behind the `voice` feature so WSL/Linux dev builds stay lean.
+whisper-rs = { version = "0.13", default-features = false, optional = true }
+
+# TTS — ONNX Runtime bindings for Kokoro inference.
+# `download-binaries` fetches onnxruntime shared lib at build time.
+ort = { version = "=2.0.0-rc.10", features = ["download-binaries"], optional = true }
+ndarray = { version = "0.16", optional = true }
+
+# Windows Credential Manager for encryption key storage
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = "3"

@@ -13,6 +13,7 @@ pub struct RmsResult {
     /// Raw RMS value of the buffer.
     pub rms: f64,
     /// Whether the buffer is classified as speech.
+    #[allow(dead_code)]
     pub is_speech: bool,
     /// True only once: the first time speech is detected in a session.
     pub first_speech: bool,
@@ -143,6 +144,7 @@ impl RmsProcessor {
     }
 
     /// Reset the processor state for a new session, keeping the noise floor.
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.last_speech_time = None;
         self.first_speech_fired = false;

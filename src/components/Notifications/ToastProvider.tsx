@@ -1,33 +1,7 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import * as Toast from "@radix-ui/react-toast";
 import { AnimatePresence, motion } from "framer-motion";
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-export type ToastType = "reminder" | "agentReply" | "routineResult";
-
-export interface ToastItem {
-  id: string;
-  type: ToastType;
-  title: string;
-  body: string;
-}
-
-interface ToastContextValue {
-  showToast: (type: ToastType, title: string, body: string) => void;
-}
-
-// ─── Context ────────────────────────────────────────────────────────────────
-
-const ToastContext = createContext<ToastContextValue>({
-  showToast: () => {},
-});
-
-export function useToast() {
-  return useContext(ToastContext);
-}
-
-// ─── Provider ───────────────────────────────────────────────────────────────
+import { ToastContext, type ToastItem, type ToastType } from "./useToast";
 
 let nextId = 0;
 const MAX_TOASTS = 5;
@@ -40,14 +14,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const id = String(++nextId);
     setToasts((prev) => {
       const next = [...prev, { id, type, title, body }];
-      // Keep max 5
       if (next.length > MAX_TOASTS) {
         return next.slice(next.length - MAX_TOASTS);
       }
       return next;
     });
 
-    // Auto dismiss
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, AUTO_DISMISS_MS);

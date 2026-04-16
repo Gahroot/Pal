@@ -7,6 +7,11 @@
 //!
 //! On Windows: uses IAudioEndpointVolume via windows-rs.
 //! On Linux: stub (muting not needed for development).
+//!
+//! Retained for future wiring from `AudioCapture::start` when `mute_system`
+//! is set. Currently unused, hence the allow.
+
+#![allow(dead_code)]
 
 /// System audio muter that tracks whether it caused the mute.
 pub struct SystemAudioMuter {

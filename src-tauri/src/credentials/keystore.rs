@@ -10,6 +10,7 @@
 use anyhow::{Context, Result};
 
 /// The credential name used for storing the encryption key.
+#[cfg(target_os = "windows")]
 const CREDENTIAL_NAME: &str = "com.tama.encryption-key";
 
 /// Get the existing encryption key, or create and store a new one.
@@ -33,31 +34,42 @@ pub fn get_or_create_key() -> Result<[u8; 32]> {
     Ok(key)
 }
 
-// ── Windows implementation ──────────────────────────────────────────────
+// ── Windows implementation (Windows Credential Manager via keyring) ─────
 
 #[cfg(target_os = "windows")]
-fn load_key() -> Result<[u8; 32]> {
-    // TODO: Implement using windows-rs:
-    // use windows::Win32::Security::Credentials::{CredReadW, CRED_TYPE_GENERIC};
-    //
-    // let mut cred_ptr = std::ptr::null_mut();
-    // unsafe {
-    //     CredReadW(credential_name, CRED_TYPE_GENERIC, 0, &mut cred_ptr)?;
-    //     let cred = &*cred_ptr;
-    //     let blob = std::slice::from_raw_parts(
-    //         cred.CredentialBlob, cred.CredentialBlobSize as usize
-    //     );
-    //     // Copy 32 bytes from blob
-    //     CredFree(cred_ptr as _);
-    // }
-    anyhow::bail!("Windows credential loading not yet implemented")
+fn keyring_entry() -> Result<keyring::Entry> {
+    // User scope is the OS account — matches where Swift keychain lives on macOS.
+    keyring::Entry::new(CREDENTIAL_NAME, "encryption-key")
+        .context("Failed to open keyring entry")
 }
 
 #[cfg(target_os = "windows")]
-fn store_key(_key: &[u8; 32]) -> Result<()> {
-    // TODO: Implement using windows-rs:
-    // use windows::Win32::Security::Credentials::{CredWriteW, CRED_TYPE_GENERIC, CREDENTIALW};
-    anyhow::bail!("Windows credential storing not yet implemented")
+fn load_key() -> Result<[u8; 32]> {
+    use base64::Engine;
+    let entry = keyring_entry()?;
+    let encoded = entry
+        .get_password()
+        .context("Failed to read key from Windows Credential Manager")?;
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(&encoded)
+        .context("Keyring payload is not valid base64")?;
+    if data.len() != 32 {
+        anyhow::bail!("Invalid key in credential store: expected 32 bytes, got {}", data.len());
+    }
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&data);
+    Ok(key)
+}
+
+#[cfg(target_os = "windows")]
+fn store_key(key: &[u8; 32]) -> Result<()> {
+    use base64::Engine;
+    let entry = keyring_entry()?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(key);
+    entry
+        .set_password(&encoded)
+        .context("Failed to write key to Windows Credential Manager")?;
+    Ok(())
 }
 
 // ── Linux implementation (file-based for development) ───────────────────

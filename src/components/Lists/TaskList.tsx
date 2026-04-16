@@ -57,6 +57,7 @@ export function TaskList() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async load from non-React imperative store
     void loadTasks();
   }, [loadTasks]);
 

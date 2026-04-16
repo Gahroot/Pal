@@ -1,32 +1,23 @@
 //! Screen capture module.
 //!
-//! Mirrors the Swift ScreenshotTool pattern using platform-native APIs:
-//! - macOS: CGWindowListCreateImage (in the Swift original)
-//! - Windows: Desktop Duplication API (TODO)
-//! - Linux: scrot / gnome-screenshot fallback for development
+//! Uses the `xcap` crate which wraps platform-native APIs:
+//! - Windows: DXGI Desktop Duplication / GDI
+//! - Linux: X11 / Wayland
+//! - macOS: CoreGraphics (not targeted)
 //!
 //! Output is JPEG or PNG encoded via the `image` crate.
-//! Images wider than 2560px are downscaled to reduce token usage.
+//! Images wider than 2560px are downscaled to reduce vision token usage.
 
-use anyhow::{Context, Result};
-use image::DynamicImage;
+use anyhow::{anyhow, Context, Result};
+use image::{DynamicImage, RgbaImage};
 
 /// Maximum width before downscaling.
 const MAX_WIDTH: u32 = 2560;
 
 /// Capture a screenshot of the specified display.
-///
-/// # Arguments
-/// - `display`: Display index (0 = primary). Currently ignored on Linux.
-/// - `format`: "jpeg" or "png".
-/// - `quality`: JPEG quality 1-100 (ignored for PNG).
-///
-/// # Returns
-/// Tuple of (encoded_bytes, width, height).
 pub fn capture_screen(display: u32, format: &str, quality: u8) -> Result<(Vec<u8>, u32, u32)> {
     let img = capture_raw(display)?;
 
-    // Downscale if too wide.
     let img = if img.width() > MAX_WIDTH {
         let scale = MAX_WIDTH as f64 / img.width() as f64;
         let new_h = (img.height() as f64 * scale) as u32;
@@ -49,7 +40,6 @@ pub fn capture_screen(display: u32, format: &str, quality: u8) -> Result<(Vec<u8
     Ok((encoded, width, height))
 }
 
-/// Encode a DynamicImage to bytes in the requested format.
 fn encode_image(img: &DynamicImage, format: &str, quality: u8) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut buf);
@@ -71,69 +61,27 @@ fn encode_image(img: &DynamicImage, format: &str, quality: u8) -> Result<Vec<u8>
     Ok(buf)
 }
 
-/// Platform-specific raw screen capture.
-#[cfg(target_os = "windows")]
-fn capture_raw(_display: u32) -> Result<DynamicImage> {
-    // TODO: Implement using Desktop Duplication API (DXGI) via windows-rs:
-    // 1. Create ID3D11Device + IDXGIOutputDuplication
-    // 2. AcquireNextFrame
-    // 3. Map the texture to CPU-readable memory
-    // 4. Convert BGRA to RGBA DynamicImage
-    //
-    // For now, fall back to a simple approach or error.
-    anyhow::bail!(
-        "Windows screen capture not yet implemented. \
-         Needs windows-rs with DXGI Desktop Duplication API."
-    )
-}
-
-#[cfg(not(target_os = "windows"))]
 fn capture_raw(display: u32) -> Result<DynamicImage> {
-    // Linux fallback: use scrot or gnome-screenshot.
-    use std::process::Command;
-
-    let tmp_path = format!("/tmp/tama_screenshot_{}.png", uuid::Uuid::new_v4());
-
-    // Try scrot first (common on X11).
-    let result = Command::new("scrot").arg(&tmp_path).output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            let img = image::open(&tmp_path).context("Failed to open screenshot")?;
-            let _ = std::fs::remove_file(&tmp_path);
-            return Ok(img);
-        }
-        _ => {}
+    let monitors = xcap::Monitor::all().map_err(|e| anyhow!("Failed to list monitors: {e}"))?;
+    if monitors.is_empty() {
+        anyhow::bail!("No monitors found");
     }
 
-    // Try gnome-screenshot.
-    let result = Command::new("gnome-screenshot")
-        .args(["-f", &tmp_path])
-        .output();
+    let monitor = monitors
+        .get(display as usize)
+        .or_else(|| monitors.iter().find(|m| m.is_primary()))
+        .or_else(|| monitors.first())
+        .ok_or_else(|| anyhow!("Display index {} not available", display))?;
 
-    match result {
-        Ok(output) if output.status.success() => {
-            let img = image::open(&tmp_path).context("Failed to open screenshot")?;
-            let _ = std::fs::remove_file(&tmp_path);
-            return Ok(img);
-        }
-        _ => {}
-    }
+    let captured = monitor
+        .capture_image()
+        .map_err(|e| anyhow!("Monitor capture failed: {e}"))?;
 
-    // Try grim (Wayland).
-    let result = Command::new("grim").arg(&tmp_path).output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            let img = image::open(&tmp_path).context("Failed to open screenshot")?;
-            let _ = std::fs::remove_file(&tmp_path);
-            return Ok(img);
-        }
-        _ => {}
-    }
-
-    let _ = display; // suppress unused warning
-    anyhow::bail!(
-        "No screenshot tool available. Install scrot, gnome-screenshot, or grim."
-    )
+    // xcap uses a different `image` crate version than we do; rebuild the
+    // buffer via raw bytes so the types unify.
+    let (w, h) = captured.dimensions();
+    let raw: Vec<u8> = captured.into_raw();
+    let rgba = RgbaImage::from_raw(w, h, raw)
+        .ok_or_else(|| anyhow!("Failed to reinterpret captured buffer"))?;
+    Ok(DynamicImage::ImageRgba8(rgba))
 }

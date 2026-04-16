@@ -54,6 +54,7 @@ export function TaskDetail() {
   useEffect(() => {
     if (activeId) {
       const found = taskStore.taskList(activeId);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync active task from store on id change
       if (found) setTaskList({ ...found });
     }
   }, [activeId]);
