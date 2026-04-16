@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicovank/tauri-schema/main/schema.json",
+  "productName": "Tama",
+  "version": "0.1.0",
+  "identifier": "com.tama.windows",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Tama",
+        "width": 680,
+        "height": 72,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false,
+        "center": true,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "global-shortcut": {},
+    "notification": {},
+    "clipboard-manager": {},
+    "shell": {
+      "open": true
+    },
+    "fs": {
+      "scope": {
+        "allow": ["**"],
+        "deny": []
+      }
+    }
+  }
+}

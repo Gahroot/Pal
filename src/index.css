@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════
+   Tama Windows — Custom Theme
+   Matches macOS tama-agent visual design
+   ═══════════════════════════════════════════ */
+
+@theme {
+  /* Panel colors */
+  --color-panel-bg: rgba(40, 40, 40, 0.85);
+  --color-panel-border: rgba(255, 255, 255, 0.1);
+
+  /* Glass effect colors */
+  --color-glass: rgba(255, 255, 255, 0.08);
+  --color-glass-hover: rgba(255, 255, 255, 0.14);
+  --color-glass-primary: rgba(255, 255, 255, 0.14);
+  --color-glass-primary-hover: rgba(255, 255, 255, 0.2);
+  --color-glass-border: rgba(255, 255, 255, 0.15);
+  --color-glass-border-primary: rgba(255, 255, 255, 0.25);
+
+  /* Text */
+  --color-text-primary: rgba(255, 255, 255, 0.95);
+  --color-text-secondary: rgba(255, 255, 255, 0.5);
+  --color-text-muted: rgba(255, 255, 255, 0.35);
+
+  /* Accent */
+  --color-accent: rgb(59, 130, 246);
+  --color-accent-hover: rgb(96, 165, 250);
+
+  /* Error */
+  --color-error-bg: rgba(245, 158, 11, 0.12);
+  --color-error-border: rgba(245, 158, 11, 0.35);
+
+  /* Border radii — match macOS original */
+  --radius-panel: 28px;
+  --radius-code: 10px;
+  --radius-pill: 12px;
+  --radius-button: 8px;
+  --radius-tab: 6px;
+  --radius-bubble: 16px;
+
+  /* Tab bar */
+  --color-tab-active: rgb(97, 97, 97);
+  --color-tab-divider: rgba(255, 255, 255, 0.12);
+}
+
+/* ═══════════════════════════════════════════
+   Base styles
+   ═══════════════════════════════════════════ */
+
+body {
+  background: transparent;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ═══════════════════════════════════════════
+   Scrollbar — match macOS overlay style
+   ═══════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ═══════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════ */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+
+/* ═══════════════════════════════════════════
+   Code block overrides (atom-one-dark)
+   ═══════════════════════════════════════════ */
+
+.code-block pre {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-radius: var(--radius-code);
+  margin: 0 !important;
+  padding: 12px !important;
+}
+
+.code-block code {
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+/* ═══════════════════════════════════════════
+   Input field — white cursor on dark bg
+   ═══════════════════════════════════════════ */
+
+input::placeholder {
+  color: var(--color-text-muted);
+}
+
+input {
+  caret-color: white;
+}

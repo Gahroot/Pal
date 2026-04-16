@@ -1,0 +1,55 @@
+[package]
+name = "tama-windows"
+version = "0.1.0"
+description = "Tama AI Assistant for Windows"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "tama_windows_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri core
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Utilities
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+
+# HTTP (for model downloads, SSRF validation)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Image processing (screenshots)
+image = "0.25"
+base64 = "0.22"
+
+# Encryption
+chacha20poly1305 = "0.10"
+
+# Audio capture/playback (works on Linux via ALSA, Windows via WASAPI)
+cpal = "0.15"
+ringbuf = "0.4"
+rubato = "0.16"
+
+# Regex for TTS text processing
+regex = "1"
