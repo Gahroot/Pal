@@ -10,11 +10,12 @@ name = "tama_windows_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [features]
-# `voice` enables whisper.cpp STT and Kokoro TTS.
-# It's off by default so WSL/Linux dev builds don't require libclang + espeak-ng.
-# Windows release builds should compile with `--features voice`.
-default = []
+# `voice` enables whisper.cpp STT and Kokoro TTS. ON by default.
+# Requires LLVM installed (libclang) on the build host for whisper-rs bindgen.
+default = ["voice"]
 voice = ["dep:whisper-rs", "dep:ort", "dep:ndarray"]
+# Opt-out for environments without LLVM (e.g. a bare WSL dev box).
+no-voice = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
