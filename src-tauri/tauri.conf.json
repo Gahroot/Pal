@@ -28,15 +28,5 @@
       "csp": null
     }
   },
-  "plugins": {
-    "shell": {
-      "open": true
-    },
-    "fs": {
-      "scope": {
-        "allow": ["**"],
-        "deny": []
-      }
-    }
-  }
+  "plugins": {}
 }
